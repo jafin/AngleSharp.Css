@@ -19,7 +19,7 @@ namespace AngleSharp.Css.Dom
         private readonly CssStyleDeclaration _style;
         private readonly CssRuleList _rules;
         private ISelector _selector;
-        private IEnumerable<ISelector> _selectorList;
+        private ISelector[] _selectorList;
         private Boolean _nested;
 
         #endregion
@@ -118,7 +118,7 @@ namespace AngleSharp.Css.Dom
 
             if (_selectorList is not null)
             {
-                foreach (var selector in _selectorList.OrderByDescending(m => m.Specificity))
+                foreach (var selector in _selectorList)
                 {
                     if (selector.Match(element, scope))
                     {
@@ -184,7 +184,8 @@ namespace AngleSharp.Css.Dom
 
         void ISelectorVisitor.List(IEnumerable<ISelector> selectors)
         {
-            _selectorList = selectors;
+            var sorted = selectors.OrderByDescending(m => m.Specificity).ToArray();
+            _selectorList = sorted;
         }
 
         void ISelectorVisitor.Combinator(IEnumerable<ISelector> selectors, IEnumerable<string> symbols)

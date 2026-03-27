@@ -66,7 +66,7 @@ namespace AngleSharp.Css.Dom
 
         public Boolean IsReadOnly => _context == null;
 
-        public Int32 Length => Declarations.Count();
+        public Int32 Length => _declarations.Count;
 
         public ICssRule Parent => _parent;
 
@@ -113,7 +113,7 @@ namespace AngleSharp.Css.Dom
             }
         }
 
-        private ICssProperty TryCreateShorthand(String shorthandName, IEnumerable<String> serialized, List<String> usedProperties, Boolean force)
+        private ICssProperty TryCreateShorthand(String shorthandName, HashSet<String> serialized, List<String> usedProperties, Boolean force)
         {
             var factory = _context.GetFactory<IDeclarationFactory>();
             var shorthand = factory.Create(shorthandName);
@@ -154,7 +154,7 @@ namespace AngleSharp.Css.Dom
         public String ToCssBlock(IStyleFormatter formatter)
         {
             var list = new List<ICssProperty>();
-            var serialized = new List<String>();
+            var serialized = new HashSet<String>(StringComparer.OrdinalIgnoreCase);
             var factory = _context.GetFactory<IDeclarationFactory>();
 
             foreach (var declaration in Declarations)
@@ -326,7 +326,7 @@ namespace AngleSharp.Css.Dom
         #region Helpers
 
         private ICssProperty GetPropertyShorthand(String name) =>
-            TryCreateShorthand(name, Enumerable.Empty<String>(), new List<String>(), true);
+            TryCreateShorthand(name, new HashSet<String>(StringComparer.OrdinalIgnoreCase), new List<String>(), true);
 
         private ICssProperty CreateProperty(String propertyName)
         {
