@@ -7,6 +7,7 @@ namespace AngleSharp.Css.Parser
     using AngleSharp.Text;
     using System;
     using System.Globalization;
+    using System.Text;
 
     /// <summary>
     /// The CSS tokenizer.
@@ -64,48 +65,250 @@ namespace AngleSharp.Css.Parser
             var sb = StringBuilderPool.Obtain();
             Back(Position - position);
             var current = Current;
-            var spaced = 0;
+            var trailingSpaces = 0;
 
-            while (!(current is Symbols.EndOfFile or Symbols.Semicolon or Symbols.CurlyBracketOpen or Symbols.CurlyBracketClose))
+            while (current != Symbols.EndOfFile && current != Symbols.Semicolon
+                && current != Symbols.CurlyBracketOpen && current != Symbols.CurlyBracketClose)
             {
-                var token = Data(current);
-
-                if (Current is Symbols.EndOfFile)
+                if (current is Symbols.FormFeed or Symbols.LineFeed or Symbols.CarriageReturn or Symbols.Tab or Symbols.Space)
                 {
-                    Back();
-                }
-
-                if (token.Type == CssTokenType.Whitespace)
-                {
-                    spaced++;
+                    trailingSpaces++;
                     sb.Append(current);
-                    current = GetNext();
                 }
                 else
                 {
-                    var length = Position - position;
-                    Back(length++);
-                    current = Current;
-                    spaced = 0;
+                    trailingSpaces = 0;
+                    sb.Append(current);
 
-                    while (length > 0)
+                    switch (current)
                     {
-                        sb.Append(current);
-                        --length;
-                        current = GetNext();
+                        case Symbols.DoubleQuote:
+                            ScanQuotedContent(sb, Symbols.DoubleQuote);
+                            break;
+                        case Symbols.SingleQuote:
+                            ScanQuotedContent(sb, Symbols.SingleQuote);
+                            break;
+                        case Symbols.Solidus:
+                            var peek = GetNext();
+
+                            if (peek == Symbols.Asterisk)
+                            {
+                                sb.Append(peek);
+                                ScanCommentContent(sb);
+                            }
+                            else
+                            {
+                                Back();
+                            }
+
+                            break;
+                        case Symbols.ReverseSolidus:
+                            var escaped = GetNext();
+
+                            if (escaped != Symbols.EndOfFile)
+                            {
+                                sb.Append(escaped);
+                            }
+                            else
+                            {
+                                Back();
+                            }
+
+                            break;
                     }
                 }
-                
-                position = Position;
+
+                current = GetNext();
             }
 
-            if (spaced > 0)
+            if (trailingSpaces > 0)
             {
-                sb.Remove(sb.Length - spaced, spaced);
+                sb.Remove(sb.Length - trailingSpaces, trailingSpaces);
             }
 
             Back();
             return sb.ToPool();
+        }
+
+        /// <summary>
+        /// Gets the trimmed content until either '}' or ';' is hit,
+        /// and detects/strips a trailing !important suffix.
+        /// </summary>
+        public String ContentFromValue(Int32 position, out Boolean important)
+        {
+            var sb = StringBuilderPool.Obtain();
+            Back(Position - position);
+            var current = Current;
+            var trailingSpaces = 0;
+
+            while (current != Symbols.EndOfFile && current != Symbols.Semicolon
+                && current != Symbols.CurlyBracketOpen && current != Symbols.CurlyBracketClose)
+            {
+                if (current is Symbols.FormFeed or Symbols.LineFeed or Symbols.CarriageReturn or Symbols.Tab or Symbols.Space)
+                {
+                    trailingSpaces++;
+                    sb.Append(current);
+                }
+                else
+                {
+                    trailingSpaces = 0;
+                    sb.Append(current);
+
+                    switch (current)
+                    {
+                        case Symbols.DoubleQuote:
+                            ScanQuotedContent(sb, Symbols.DoubleQuote);
+                            break;
+                        case Symbols.SingleQuote:
+                            ScanQuotedContent(sb, Symbols.SingleQuote);
+                            break;
+                        case Symbols.Solidus:
+                            var peek = GetNext();
+
+                            if (peek == Symbols.Asterisk)
+                            {
+                                sb.Append(peek);
+                                ScanCommentContent(sb);
+                            }
+                            else
+                            {
+                                Back();
+                            }
+
+                            break;
+                        case Symbols.ReverseSolidus:
+                            var escaped = GetNext();
+
+                            if (escaped != Symbols.EndOfFile)
+                            {
+                                sb.Append(escaped);
+                            }
+                            else
+                            {
+                                Back();
+                            }
+
+                            break;
+                    }
+                }
+
+                current = GetNext();
+            }
+
+            if (trailingSpaces > 0)
+            {
+                sb.Remove(sb.Length - trailingSpaces, trailingSpaces);
+            }
+
+            Back();
+
+            // Check for and strip !important suffix
+            var keyword = CssKeywords.BangImportant;
+            important = false;
+
+            if (sb.Length >= keyword.Length)
+            {
+                var offset = sb.Length - keyword.Length;
+                var match = true;
+
+                for (var i = 0; i < keyword.Length; i++)
+                {
+                    if (Char.ToLowerInvariant(sb[offset + i]) != keyword[i])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    important = true;
+                    sb.Length = offset;
+
+                    // Trim whitespace before !important
+                    while (sb.Length > 0)
+                    {
+                        var c = sb[sb.Length - 1];
+
+                        if (c is Symbols.Space or Symbols.Tab or Symbols.FormFeed or Symbols.LineFeed or Symbols.CarriageReturn)
+                        {
+                            sb.Length--;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return sb.ToPool();
+        }
+
+        /// <summary>
+        /// Scans quoted string content, appending raw characters to the buffer.
+        /// </summary>
+        private void ScanQuotedContent(StringBuilder sb, Char quote)
+        {
+            var current = GetNext();
+
+            while (current != Symbols.EndOfFile)
+            {
+                sb.Append(current);
+
+                if (current == quote)
+                {
+                    return;
+                }
+
+                if (current == Symbols.ReverseSolidus)
+                {
+                    current = GetNext();
+
+                    if (current == Symbols.EndOfFile)
+                    {
+                        return;
+                    }
+
+                    sb.Append(current);
+                }
+
+                current = GetNext();
+            }
+        }
+
+        /// <summary>
+        /// Scans comment content (after /*), appending raw characters to the buffer.
+        /// </summary>
+        private void ScanCommentContent(StringBuilder sb)
+        {
+            var current = GetNext();
+
+            while (current != Symbols.EndOfFile)
+            {
+                sb.Append(current);
+
+                if (current == Symbols.Asterisk)
+                {
+                    current = GetNext();
+
+                    if (current == Symbols.EndOfFile)
+                    {
+                        return;
+                    }
+
+                    sb.Append(current);
+
+                    if (current == Symbols.Solidus)
+                    {
+                        return;
+                    }
+
+                    continue;
+                }
+
+                current = GetNext();
+            }
         }
 
         internal void RaiseErrorOccurred(CssParseError error, TextPosition position)
