@@ -168,7 +168,7 @@ namespace AngleSharp.Css.Dom
 
                     if (shorthands.Any())
                     {
-                        var sortedShorthands = shorthands.OrderByDescending(shorthand => factory.Create(property).Longhands.Length);
+                        var sortedShorthands = shorthands.OrderByDescending(shorthand => GetShorthandDepth(factory, shorthand));
 
                         foreach (var shorthandName in sortedShorthands)
                         {
@@ -327,6 +327,30 @@ namespace AngleSharp.Css.Dom
 
         private ICssProperty GetPropertyShorthand(String name) =>
             TryCreateShorthand(name, new HashSet<String>(StringComparer.OrdinalIgnoreCase), new List<String>(), true);
+
+        private static Int32 GetShorthandDepth(IDeclarationFactory factory, String name)
+        {
+            var longhands = factory.Create(name).Longhands;
+
+            if (longhands.Length == 0)
+            {
+                return 0;
+            }
+
+            var maxChildDepth = 0;
+
+            for (var i = 0; i < longhands.Length; i++)
+            {
+                var childDepth = GetShorthandDepth(factory, longhands[i]);
+
+                if (childDepth > maxChildDepth)
+                {
+                    maxChildDepth = childDepth;
+                }
+            }
+
+            return maxChildDepth + 1;
+        }
 
         private ICssProperty CreateProperty(String propertyName)
         {
